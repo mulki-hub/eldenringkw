@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, orientation=landscape">
+    <title>Elden Ring KW - Combo Update</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #87CEEB; touch-action: none; font-family: sans-serif;}
+        #game-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;}
+        #camera-zone { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: auto; z-index: 1; }
+        
+        #status-bar { position: absolute; top: 20px; left: 20px; width: 200px; }
+        .bar-container { background: rgba(0,0,0,0.5); border: 2px solid #fff; border-radius: 5px; margin-bottom: 10px; height: 20px; overflow: hidden; position: relative; }
+        #hp-bar { background: red; height: 100%; width: 100%; transition: width 0.2s; }
+        #stamina-bar { background: #00ff00; height: 100%; width: 100%; transition: width 0.1s; }
+        .bar-text { position: absolute; top: 0; left: 5px; color: white; font-size: 14px; font-weight: bold; line-height: 20px; }
+
+        #minimap-container { position: absolute; top: 20px; right: 20px; width: 100px; height: 100px; border: 3px solid #ccc; border-radius: 50%; background: rgba(0, 0, 0, 0.5); overflow: hidden; }
+        #minimap-canvas { position: absolute; top: 0; left: 0; }
+
+        #joystick-zone { position: absolute; bottom: 20px; left: 30px; width: 140px; height: 140px; pointer-events: auto; z-index: 10;}
+        
+        .attack-btn { pointer-events: auto; user-select: none; display: flex; justify-content: center; align-items: center; z-index: 10; color: white; border-radius: 50%; font-weight: bold; transition: filter 0.3s; }
+        
+        #basic-attack-btn { position: absolute; bottom: 30px; right: 110px; width: 80px; height: 80px; background: #e60000; border: 3px solid #800000; font-size: 14px; }
+        #spin-attack-btn { position: absolute; bottom: 120px; right: 50px; width: 60px; height: 60px; background: #ff6600; border: 2px solid #cc5200; font-size: 10px; }
+        #ulti-btn { position: absolute; bottom: 20px; right: 20px; width: 70px; height: 70px; background: gold; color: black; border: 3px solid darkgoldenrod; font-size: 14px; box-shadow: 0 0 10px gold; }
+        
+        #roll-btn { position: absolute; bottom: 60px; right: 200px; width: 60px; height: 60px; background: #555; border: 2px solid #333; font-size: 12px; }
+        #sprint-btn { position: absolute; bottom: 130px; right: 130px; width: 60px; height: 60px; background: #008CBA; border: 2px solid #005f73; font-size: 12px; }
+
+        .btn-active { transform: scale(0.9); filter: brightness(0.8); }
+        .disabled { opacity: 0.5; filter: grayscale(100%); }
+        #notification { position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%); color: yellow; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 5px black; display: none; z-index: 20; text-align: center; }
+        #loading-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: black; color: white; display: flex; justify-content: center; align-items: center; font-size: 20px; font-weight: bold; z-index: 100; flex-direction: column; }
+    </style>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
+</head>
+<body>
+    <div id="loading-screen">
+        <div id="loading-text">Memuat Game... 0%</div>
+    </div>
+    <div id="game-container"></div>
+    <div id="camera-zone"></div>
+    <div id="ui-layer">
+        <div id="status-bar">
+            <div class="bar-container"><div id="hp-bar"></div><div class="bar-text" id="hp-text">HP: 100/100</div></div>
+            <div class="bar-container"><div id="stamina-bar"></div><div class="bar-text" id="stamina-text">STM: 100/100</div></div>
+        </div>
+        
+        <div id="minimap-container"><canvas id="minimap-canvas" width="100" height="100"></canvas></div>
+
+        <div id="joystick-zone"></div>
+        <div id="sprint-btn" class="attack-btn">LARI</div>
+        <div id="roll-btn" class="attack-btn">ROLL</div>
+        <div id="basic-attack-btn" class="attack-btn">TEBAS</div>
+        <div id="spin-attack-btn" class="attack-btn">PUTAR</div>
+        <div id="ulti-btn" class="attack-btn">ULTI!</div>
+        <div id="notification">MUSUH TEWAS!</div>
+    </div>
+
+    <script>
+        // ==========================================
+        // SISTEM AUDIO
+        // ==========================================
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContext();
+        
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            
+            if (type === 'swing') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.1);
+            } else if (type === 'hit') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.15);
+                gain.gain.setValueAtTime(0.8, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+            } else if (type === 'dash') { 
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.4);
+                gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.4);
+            }
+        }
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB); 
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('game-container').appendChild(renderer.domElement);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(10, 20, 10);
+        scene.add(dirLight);
+
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x228B22 }));
+        floor.rotation.x = -Math.PI / 2; 
+        scene.add(floor);
+
+        const manager = new THREE.LoadingManager();
+        manager.onProgress = function (url, loaded, total) { document.getElementById('loading-text').innerText = 'Memuat... ' + Math.floor((loaded/total)*100) + '%'; };
+        manager.onLoad = function () { document.getElementById('loading-screen').style.display = 'none'; };
+
+        const gltfLoader = new THREE.GLTFLoader(manager);
+        const textureLoader = new THREE.TextureLoader(manager);
+        const knightTex = textureLoader.load('./knight_texture.png'); knightTex.flipY = false; knightTex.encoding = 3001; 
+        const barbarianTex = textureLoader.load('./barbarian_texture.png'); barbarianTex.flipY = false; barbarianTex.encoding = 3001;
+
+        let playerMixer; 
+        let clock = new THREE.Clock();
+        let playerAction = null; 
+
+        const player = new THREE.Group();
+        player.position.y = 0; 
+        scene.add(player);
+
+        gltfLoader.load('./Knight.glb', (gltf) => {
+            const playerModel = gltf.scene;
+            playerModel.traverse((child) => { if (child.isMesh) { child.material.map = knightTex; child.material.needsUpdate = true; } });
+            playerModel.scale.set(1, 1, 1); 
+            player.add(playerModel);
+
+            playerMixer = new THREE.AnimationMixer(playerModel);
+            // Siap menerima file animasi baru dengan nama yang sama
+            gltfLoader.load('./Rig_Medium_MovementBasic.glb', (animGltf) => {
+                if(animGltf.animations.length > 8) {
+                    playerAction = playerMixer.clipAction(animGltf.animations[8]); // Asumsi animasi 8 masih jalan/lari
+                    playerAction.play(); playerAction.paused = true; 
+                }
+            });
+        });
+
+        // ==========================================
+        // KAPAK DARURAT (DIBUAT DARI KODE)
+        // ==========================================
+        const sword = new THREE.Group();
+        // Posisi default kapak di sebelah kanan karakter
+        sword.position.set(0.6, 1, 0.5); 
+        player.add(sword);
+
+        // Membuat Kapak Manual tanpa memuat dari file
+        function createEmergencyAxe() {
+            const axeGroup = new THREE.Group();
+            
+            // Gagang (Handle)
+            const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.5), new THREE.MeshStandardMaterial({ color: 0x5c4033 }));
+            handle.position.y = 0.5; // Angkat gagang agar pas dipegang
+            
+            // Mata Kapak (Blade)
+            // Menggunakan bentuk prisma segitiga sederhana yang diratakan
+            const bladeGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.1, 3);
+            const bladeMaterial = new THREE.MeshStandardMaterial({ color: 0xa9a9a9 });
+            const blade = new THREE.Mesh(bladeGeometry, bladeMaterial);
+            
+            // Posisikan mata kapak di atas gagang
+            blade.position.set(0, 1.1, 0.2); 
+            blade.rotation.x = Math.PI / 2; // Rebahkan
+            blade.rotation.z = Math.PI / 2; // Hadapkan ke depan
+
+            axeGroup.add(handle);
+            axeGroup.add(blade);
+            
+            return axeGroup;
+        }
+
+        const fallbackAxe = createEmergencyAxe();
+        sword.add(fallbackAxe); // Langsung tambahkan ke tangan, tidak ada sistem looting sementara waktu
+
+        const MAX_HP = 100, MAX_STAMINA = 100;
+        let playerHP = MAX_HP, playerStamina = MAX_STAMINA;
+        let isAttacking = false, isSprinting = false;
+
+        function updateUI() {
+            document.getElementById('stamina-bar').style.width = (playerStamina / MAX_STAMINA * 100) + '%';
+            document.getElementById('stamina-text').innerText = `STM: ${Math.floor(playerStamina)}/${MAX_STAMINA}`;
+            
+            document.getElementById('basic-attack-btn').classList.toggle('disabled', playerStamina < 1);
+            document.getElementById('spin-attack-btn').classList.toggle('disabled', playerStamina < 30);
+            document.getElementById('ulti-btn').classList.toggle('disabled', playerStamina < 60);
+            document.getElementById('sprint-btn').classList.toggle('disabled', playerStamina < 1);
+            document.getElementById('roll-btn').classList.toggle('disabled', playerStamina < 15);
+        }
+
+        // ==========================================
+        // SISTEM VISUAL EFFECT (VFX)
+        // ==========================================
+        const vfxGroup = new THREE.Group();
+        scene.add(vfxGroup);
+
+        function spawnSlashVFX(pos, isHit = false) {
+            const geo = isHit ? new THREE.BoxGeometry(0.5, 0.5, 0.5) : new THREE.PlaneGeometry(5, 0.1);
+            const color = isHit ? 0xff0000 : 0xffffff;
+            const mat = new THREE.MeshBasicMaterial({ color: color, transparent: true, opacity: 1, side: THREE.DoubleSide });
+            const vfx = new THREE.Mesh(geo, mat);
+            
+            vfx.position.copy(pos);
+            vfx.position.y += 1 + Math.random();
+            
+            if(!isHit) {
+                vfx.rotation.y = Math.random() * Math.PI;
+                vfx.rotation.z = (Math.random() - 0.5) * Math.PI;
+            }
+            
+            vfxGroup.add(vfx);
+            let frame = 0;
+            const anim = setInterval(() => {
+                frame++;
+                if(!isHit) vfx.scale.x += 0.5; 
+                vfx.material.opacity -= 0.1;
+                vfx.position.y += 0.05;
+                if(frame > 10) { vfxGroup.remove(vfx); clearInterval(anim); }
+            }, 16);
+        }
+
+        let enemies = [];
+        function spawnEnemy(x, z, isBoss = false) {
+            const enemyGroup = new THREE.Group();
+            let maxHealth = isBoss ? 500 : 100;
+            let spriteScaleY = isBoss ? 3 : 2; let spritePosY = isBoss ? 3.5 : 2;
+            enemyGroup.position.set(x, 0, z); scene.add(enemyGroup);
+
+            gltfLoader.load('./Barbarian.glb', (gltf) => {
+                const enemyModel = gltf.scene;
+                enemyModel.traverse((child) => { if (child.isMesh) { child.material.map = barbarianTex; child.material.needsUpdate = true; } });
+                enemyModel.scale.set(isBoss ? 2 : 1, isBoss ? 2 : 1, isBoss ? 2 : 1);
+                enemyGroup.add(enemyModel);
+                
+                const enemyMixer = new THREE.AnimationMixer(enemyModel);
+                gltfLoader.load('./Rig_Medium_MovementBasic.glb', (animGltf) => {
+                    if(animGltf.animations.length > 8) { const act = enemyMixer.clipAction(animGltf.animations[8]); act.play(); act.paused = true; }
+                });
+                enemyGroup.userData.mixer = enemyMixer;
+            });
+
+            const canvas = document.createElement('canvas'); canvas.width = 128; canvas.height = 32;
+            const ctx = canvas.getContext('2d'); ctx.fillStyle = 'red'; ctx.fillRect(0, 0, 128, 32);
+            const texture = new THREE.CanvasTexture(canvas);
+            const hpSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture }));
+            hpSprite.position.y = spritePosY; hpSprite.scale.set(spriteScaleY, 0.5, 1);
+            enemyGroup.add(hpSprite);
+            enemies.push({ group: enemyGroup, hpSprite: hpSprite, ctx: ctx, texture: texture, hp: maxHealth, maxHp: maxHealth, isBoss: isBoss, isDead: false });
+        }
+
+        spawnEnemy(0, -10, true); 
+        for(let i=0; i<3; i++) spawnEnemy((Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30, false); 
+
+        function updateEnemyHPBar(enemyObj) {
+            enemyObj.ctx.clearRect(0, 0, 128, 32);
+            enemyObj.ctx.fillStyle = 'gray'; enemyObj.ctx.fillRect(0, 0, 128, 32); 
+            enemyObj.ctx.fillStyle = 'red'; enemyObj.ctx.fillRect(0, 0, (enemyObj.hp / enemyObj.maxHp) * 128, 32);
+            enemyObj.texture.needsUpdate = true;
+        }
+
+        function showNotification(text) {
+            const notif = document.getElementById('notification');
+            notif.innerText = text; notif.style.display = 'block';
+            setTimeout(() => { notif.style.display = 'none'; }, 2000);
+        }
+
+        function checkDamageAll(radius, damage, knockbackPower) {
+            let hitTarget = false;
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemyObj = enemies[i];
+                if(enemyObj.isDead) continue;
+                
+                const hitRadius = enemyObj.isBoss ? radius + 1.5 : radius; 
+                const jarak = player.position.distanceTo(enemyObj.group.position);
+                
+                if (jarak < hitRadius) {
+                    hitTarget = true;
+                    spawnSlashVFX(enemyObj.group.position, true); 
+                    
+                    const actualKnockback = enemyObj.isBoss ? knockbackPower * 0.1 : knockbackPower;
+                    const dx = enemyObj.group.position.x - player.position.x;
+                    const dz = enemyObj.group.position.z - player.position.z;
+                    const dist = Math.sqrt(dx*dx + dz*dz) || 1;
+                    enemyObj.group.position.x += (dx/dist) * actualKnockback;
+                    enemyObj.group.position.z += (dz/dist) * actualKnockback;
+                    
+                    enemyObj.hp -= damage;
+                    updateEnemyHPBar(enemyObj);
+                    
+                    if (enemyObj.hp <= 0) {
+                        enemyObj.isDead = true;
+                        scene.remove(enemyObj.group); enemies.splice(i, 1);
+                        playerStamina = MAX_STAMINA; updateUI(); 
+                        showNotification(enemyObj.isBoss ? "BOSS DIKALAHKAN!" : "+ STAMINA PENUH!");
+                        if(enemyObj.isBoss) { setTimeout(() => { spawnEnemy(0, -10, true); }, 10000); } 
+                        else { setTimeout(() => { spawnEnemy(player.position.x + (Math.random() - 0.5) * 40, player.position.z + (Math.random() - 0.5) * 40, false); }, 5000); }
+                    }
+                }
+            }
+            return hitTarget;
+        }
+
+        function updateMinimap() {
+            const ctx = document.getElementById('minimap-canvas').getContext('2d');
+            ctx.clearRect(0, 0, 100, 100);
+            
+            ctx.fillStyle = '#00ffff'; ctx.beginPath(); ctx.arc(50, 50, 4, 0, Math.PI*2); ctx.fill();
+            
+            ctx.fillStyle = 'red';
+            enemies.forEach(e => {
+                const dx = e.group.position.x - player.position.x;
+                const dz = e.group.position.z - player.position.z;
+                const mx = 50 + dx * 1.5; const mz = 50 + dz * 1.5; 
+                if(mx > 0 && mx < 100 && mz > 0 && mz < 100) {
+                    ctx.beginPath(); ctx.arc(mx, mz, e.isBoss ? 4 : 2, 0, Math.PI*2); ctx.fill();
+                }
+            });
+        }
+
+        let moveVector = { x: 0, z: 0 };
+        let cameraAngle = 0; const cameraDistance = 8; const cameraHeight = 5;   
+
+        function updateCamera() {
+            camera.position.x = player.position.x + cameraDistance * Math.sin(cameraAngle);
+            camera.position.z = player.position.z + cameraDistance * Math.cos(cameraAngle);
+            camera.position.y = player.position.y + cameraHeight;
+            camera.lookAt(player.position.x, player.position.y, player.position.z);
+        }
+
+        const joystick = nipplejs.create({ zone: document.getElementById('joystick-zone'), mode: 'static', position: { left: '70px', bottom: '70px' }, color: 'white' });
+        joystick.on('move', (evt, data) => { const f = Math.min(data.force, 1); moveVector.x = Math.cos(data.angle.radian) * f; moveVector.z = -Math.sin(data.angle.radian) * f; });
+        joystick.on('end', () => { moveVector.x = 0; moveVector.z = 0; });
+
+        const cameraZone = document.getElementById('camera-zone');
+        let isDragging = false, previousTouchX = 0, cameraTouchId = null;
+        cameraZone.addEventListener('touchstart', (e) => { e.preventDefault(); for (let t of e.changedTouches) if (cameraTouchId === null) { cameraTouchId = t.identifier; previousTouchX = t.clientX; isDragging = true; break; } });
+        cameraZone.addEventListener('touchmove', (e) => { e.preventDefault(); if (!isDragging) return; for (let t of e.changedTouches) if (t.identifier === cameraTouchId) { cameraAngle -= (t.clientX - previousTouchX) * 0.015; previousTouchX = t.clientX; break; } });
+        cameraZone.addEventListener('touchend', (e) => { for (let t of e.changedTouches) if (t.identifier === cameraTouchId) { isDragging = false; cameraTouchId = null; break; } });
+
+        // ==========================================
+        // SISTEM COMBO & BENEDETTA ULTIMATE
+        // ==========================================
+        let comboCount = 0;
+        let lastAttackTime = 0;
+        let justRolledAfterCombo2 = false; 
+        let rollTimerWindow = 0;
+
+        document.getElementById('roll-btn').addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+            if(!isAttacking && playerStamina >= 15) {
+                isAttacking = true; playerStamina -= 15; updateUI(); playSound('swing');
+                
+                if(comboCount === 2 && Date.now() - lastAttackTime < 1500) {
+                    justRolledAfterCombo2 = true;
+                    rollTimerWindow = Date.now(); 
+                } else {
+                    comboCount = 0; justRolledAfterCombo2 = false;
+                }
+
+                let frame = 0; let dirX = Math.sin(player.rotation.y); let dirZ = Math.cos(player.rotation.y);
+                const anim = setInterval(() => {
+                    frame++;
+                    player.position.x += dirX * 0.4; player.position.z += dirZ * 0.4; 
+                    player.rotation.x = (frame / 15) * Math.PI * 2; 
+                    if(frame >= 15) { player.rotation.x = 0; clearInterval(anim); isAttacking = false; }
+                }, 16);
+            }
+        });
+
+        document.getElementById('basic-attack-btn').addEventListener('touchstart', (e) => {
+            e.stopPropagation(); 
+            
+            const now = Date.now();
+            if(now - lastAttackTime > 1500 && !justRolledAfterCombo2) comboCount = 0; 
+            
+            if(!isAttacking && playerStamina >= 1) { 
+                
+                if(justRolledAfterCombo2 && (now - rollTimerWindow < 1000)) {
+                    isAttacking = true; playerStamina -= 20; updateUI();
+                    justRolledAfterCombo2 = false; comboCount = 0;
+                    playSound('dash'); showNotification("BENEDETTA DASH!");
+                    
+                    let frame = 0; let dirX = Math.sin(player.rotation.y); let dirZ = Math.cos(player.rotation.y);
+                    const anim = setInterval(() => {
+                        frame++;
+                        player.position.x += dirX * 0.8; player.position.z += dirZ * 0.8; 
+                        spawnSlashVFX(player.position, false); 
+                        
+                        if(frame % 3 === 0) { const hit = checkDamageAll(4, 25, 0); if(hit) playSound('hit'); } 
+                        
+                        if(frame >= 15) { 
+                            checkDamageAll(5, 50, 4); 
+                            clearInterval(anim); isAttacking = false; 
+                        }
+                    }, 16);
+                    return;
+                }
+
+                isAttacking = true; playerStamina -= 1; updateUI(); playSound('swing');
+                comboCount++; if(comboCount > 3) comboCount = 1;
+                lastAttackTime = now;
+                justRolledAfterCombo2 = false;
+
+                let frame = 0; let dirX = Math.sin(player.rotation.y); let dirZ = Math.cos(player.rotation.y);
+                const anim = setInterval(() => {
+                    frame++;
+                    if(comboCount === 1) { 
+                        if(frame <= 5) sword.rotation.x -= 0.2; 
+                        else if(frame <= 10) { sword.rotation.x += 0.5; sword.rotation.z += 0.2; }
+                        else if(frame <= 15) { sword.rotation.x = 0; sword.rotation.z = 0; clearInterval(anim); isAttacking = false; }
+                    } else if (comboCount === 2) { 
+                        if(frame <= 5) { sword.rotation.x -= 0.2; sword.rotation.z += 0.5; }
+                        else if(frame <= 10) { sword.rotation.x += 0.5; sword.rotation.z -= 0.5; }
+                        else if(frame <= 15) { sword.rotation.x = 0; sword.rotation.z = 0; clearInterval(anim); isAttacking = false; }
+                    } else if (comboCount === 3) { 
+                        if(frame <= 8) sword.rotation.x -= 0.4;
+                        else if(frame <= 12) { sword.rotation.x += 0.8; player.position.x += dirX*0.3; player.position.z += dirZ*0.3; }
+                        else if(frame <= 20) { sword.rotation.x = 0; clearInterval(anim); isAttacking = false; }
+                    }
+
+                    if(frame === 8 || (comboCount===3 && frame===11)) {
+                        const hit = checkDamageAll(3.5, comboCount===3 ? 40 : 20, comboCount===3 ? 2 : 0.5);
+                        if(hit) playSound('hit');
+                    }
+                }, 16);
+            }
+        });
+
+        // ==========================================
+        // SISA TOMBOL (LARI, PUTAR, ULTI EMAS)
+        // ==========================================
+        document.getElementById('sprint-btn').addEventListener('touchstart', (e) => { e.stopPropagation(); isSprinting = true; });
+        document.getElementById('sprint-btn').addEventListener('touchend', (e) => { e.stopPropagation(); isSprinting = false; });
+
+        document.getElementById('spin-attack-btn').addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+            if(!isAttacking && playerStamina >= 30) {
+                isAttacking = true; playerStamina -= 30; updateUI(); playSound('swing');
+                let frame = 0; let dirX = Math.sin(player.rotation.y); let dirZ = Math.cos(player.rotation.y);
+                sword.rotation.z = Math.PI / 2;
+                const anim = setInterval(() => {
+                    frame++; player.rotation.y -= 0.35; player.position.x += dirX * 0.08; player.position.z += dirZ * 0.08;
+                    if(frame === 5 || frame === 12) { const hit = checkDamageAll(4.0, 20, 1); if(hit) playSound('hit'); }
+                    if(frame >= 18) { sword.rotation.z = 0; clearInterval(anim); isAttacking = false; }
+                }, 16);
+            }
+        });
+
+        document.getElementById('ulti-btn').addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+            if(!isAttacking && playerStamina >= 60) {
+                isAttacking = true; playerStamina -= 60; updateUI(); playSound('swing');
+                let frame = 0, yAwal = player.position.y; let dirX = Math.sin(player.rotation.y); let dirZ = Math.cos(player.rotation.y);
+                const anim = setInterval(() => {
+                    frame++;
+                    if(frame <= 20) { player.position.y += 0.2; player.rotation.y -= 0.4; sword.rotation.x -= 0.1; player.position.x += dirX * 0.1; player.position.z += dirZ * 0.1; } 
+                    else if (frame <= 23) { player.position.y -= 1.3; } 
+                    else {
+                        player.position.y = yAwal; sword.rotation.x = 0; 
+                        const hit = checkDamageAll(6, 100, 4); if(hit) playSound('hit');
+                        clearInterval(anim); isAttacking = false;
+                    }
+                }, 16);
+            }
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = clock.getDelta();
+            if(playerMixer) playerMixer.update(delta);
+            enemies.forEach(e => { if(e.group.userData.mixer) e.group.userData.mixer.update(delta); });
+
+            if (!isAttacking) {
+                let speed = 0.15; let isMoving = (moveVector.x !== 0 || moveVector.z !== 0);
+
+                if (playerAction) {
+                    if (isMoving) {
+                        playerAction.paused = false; 
+                        if (isSprinting && playerStamina > 0) { speed = 0.3; playerStamina -= 0.2; playerAction.timeScale = 2.0; } 
+                        else { playerAction.timeScale = 1.0; }
+                    } else {
+                        playerAction.paused = true;
+                        if (!isSprinting && playerStamina < MAX_STAMINA) playerStamina += 0.05; 
+                    }
+                }
+
+                updateUI();
+                if (isMoving) {
+                    const moveX = (moveVector.x * Math.cos(cameraAngle) + moveVector.z * Math.sin(cameraAngle)) * speed;
+                    const moveZ = (-moveVector.x * Math.sin(cameraAngle) + moveVector.z * Math.cos(cameraAngle)) * speed;
+                    
+                    player.position.x += moveX; player.position.z += moveZ; player.rotation.y = Math.atan2(moveX, moveZ);
+                }
+            }
+
+            updateMinimap();
+            enemies.forEach(e => { if(e.group.parent) e.hpSprite.lookAt(camera.position); });
+            updateCamera();
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+    </script>
+</body>
+</html>
