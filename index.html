@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, orientation=landscape">
+    <title>Elden Ring KW - Game 3D</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #87CEEB; touch-action: none; font-family: sans-serif;}
+        #game-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;}
+        #camera-zone { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: auto; z-index: 1; }
+        
+        #status-bar { position: absolute; top: 20px; left: 20px; width: 200px; }
+        .bar-container { background: rgba(0,0,0,0.5); border: 2px solid #fff; border-radius: 5px; margin-bottom: 10px; height: 20px; overflow: hidden; position: relative; }
+        #hp-bar { background: red; height: 100%; width: 100%; transition: width 0.2s; }
+        #stamina-bar { background: #00ff00; height: 100%; width: 100%; transition: width 0.1s; }
+        .bar-text { position: absolute; top: 0; left: 5px; color: white; font-size: 14px; font-weight: bold; line-height: 20px; }
+
+        #joystick-zone { position: absolute; bottom: 20px; left: 30px; width: 140px; height: 140px; pointer-events: auto; z-index: 10;}
+        
+        #sprint-btn { position: absolute; bottom: 130px; right: 130px; width: 60px; height: 60px; background: #008CBA; color: white; border-radius: 50%; border: 2px solid #005f73; font-weight: bold; font-size: 12px; pointer-events: auto; user-select: none; display: flex; justify-content: center; align-items: center; z-index: 10; }
+        #basic-attack-btn { position: absolute; bottom: 30px; right: 110px; width: 80px; height: 80px; background: #e60000; color: white; border-radius: 50%; border: 3px solid #800000; font-weight: bold; font-size: 14px; pointer-events: auto; user-select: none; display: flex; justify-content: center; align-items: center; z-index: 10; }
+        #spin-attack-btn { position: absolute; bottom: 120px; right: 50px; width: 60px; height: 60px; background: #ff6600; color: white; border-radius: 50%; border: 2px solid #cc5200; font-weight: bold; font-size: 10px; pointer-events: auto; user-select: none; display: flex; justify-content: center; align-items: center; z-index: 10; }
+        #ulti-btn { position: absolute; bottom: 20px; right: 20px; width: 70px; height: 70px; background: gold; color: black; border-radius: 50%; border: 3px solid darkgoldenrod; font-weight: bold; font-size: 14px; pointer-events: auto; user-select: none; display: flex; justify-content: center; align-items: center; box-shadow: 0 0 10px gold; z-index: 10; }
+
+        .btn-active { transform: scale(0.9); filter: brightness(0.8); }
+        .disabled { opacity: 0.5; filter: grayscale(100%); }
+        #notification { position: absolute; top: 30%; left: 50%; transform: translate(-50%, -50%); color: yellow; font-size: 24px; font-weight: bold; text-shadow: 2px 2px 5px black; display: none; z-index: 20; text-align: center; }
+        
+        /* Tambahan: Layar Loading agar pemain tahu gamenya sedang memuat 3D */
+        #loading-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: black; color: white; display: flex; justify-content: center; align-items: center; font-size: 20px; font-weight: bold; z-index: 100; flex-direction: column; }
+    </style>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
+</head>
+<body>
+    <!-- Layar Loading -->
+    <div id="loading-screen">
+        <div id="loading-text">Memuat Game... 0%</div>
+    </div>
+
+    <div id="game-container"></div>
+    <div id="camera-zone"></div>
+    <div id="ui-layer">
+        <div id="status-bar">
+            <div class="bar-container"><div id="hp-bar"></div><div class="bar-text" id="hp-text">HP: 100/100</div></div>
+            <div class="bar-container"><div id="stamina-bar"></div><div class="bar-text" id="stamina-text">STM: 100/100</div></div>
+        </div>
+        <div id="joystick-zone"></div>
+        <div id="sprint-btn">LARI</div>
+        <div id="basic-attack-btn">TEBAS</div>
+        <div id="spin-attack-btn">PUTAR</div>
+        <div id="ulti-btn">ULTI!</div>
+        <div id="notification">MUSUH TEWAS!</div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. SETUP SCENE, KAMERA, CAHAYA, LANTAI
+        // ==========================================
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB); 
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('game-container').appendChild(renderer.domElement);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(10, 20, 10);
+        scene.add(dirLight);
+
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x228B22 }));
+        floor.rotation.x = -Math.PI / 2; 
+        scene.add(floor);
+
+        // ==========================================
+        // 2. LOADING MANAGER (Agar game tertunda sampai aset 3D siap)
+        // ==========================================
+        const manager = new THREE.LoadingManager();
+        manager.onProgress = function ( url, itemsLoaded, itemsTotal ) {
+            document.getElementById('loading-text').innerText = 'Memuat Game... ' + Math.floor((itemsLoaded / itemsTotal) * 100) + '%';
+        };
+        manager.onLoad = function ( ) {
+            // Hilangkan layar loading saat semua selesai
+            document.getElementById('loading-screen').style.display = 'none';
+        };
+
+        const gltfLoader = new THREE.GLTFLoader(manager);
+        const textureLoader = new THREE.TextureLoader(manager);
+
+        // Memanggil file dari direktori relatif "./"
+        const knightTex = textureLoader.load('./knight_texture.png');
+        knightTex.flipY = false;
+        knightTex.encoding = 3001; 
+
+        const barbarianTex = textureLoader.load('./barbarian_texture.png');
+        barbarianTex.flipY = false;
+        barbarianTex.encoding = 3001;
+
+        // ==========================================
+        // 3. PEMAIN (KNIGHT) DAN SENJATA (AXE)
+        // ==========================================
+        const player = new THREE.Group();
+        player.position.y = 0; 
+        scene.add(player);
+
+        // Load Knight.glb
+        gltfLoader.load('./Knight.glb', (gltf) => {
+            const playerModel = gltf.scene;
+            
+            playerModel.traverse((child) => {
+                if (child.isMesh) {
+                    child.material.map = knightTex;
+                    child.material.needsUpdate = true;
+                }
+            });
+            
+            playerModel.scale.set(1, 1, 1); 
+            // Jika model terbalik/menghadap layar, hilangkan tanda komen '//' di baris bawah ini:
+            // playerModel.rotation.y = Math.PI; 
+            
+            player.add(playerModel);
+        });
+
+        // Load Senjata axe2_handed.gltf
+        const sword = new THREE.Group();
+        sword.position.set(0.6, 1, 0.5); 
+        player.add(sword);
+
+        gltfLoader.load('./axe2_handed.gltf', (gltf) => {
+            const axeModel = gltf.scene;
+            // Sesuaikan ukuran kapak jika kebesaran (ubah ke 0.5 atau lebih kecil)
+            axeModel.scale.set(1, 1, 1);
+            sword.add(axeModel);
+        });
+
+        // ==========================================
+        // 4. UI & STATUS BAR
+        // ==========================================
+        const MAX_HP = 100, MAX_STAMINA = 100;
+        let playerHP = MAX_HP, playerStamina = MAX_STAMINA;
+        let isAttacking = false, isSprinting = false;
+
+        function updateUI() {
+            document.getElementById('stamina-bar').style.width = (playerStamina / MAX_STAMINA * 100) + '%';
+            document.getElementById('stamina-text').innerText = `STM: ${Math.floor(playerStamina)}/${MAX_STAMINA}`;
+            
+            document.getElementById('basic-attack-btn').classList.toggle('disabled', playerStamina < 1);
+            document.getElementById('spin-attack-btn').classList.toggle('disabled', playerStamina < 30);
+            document.getElementById('ulti-btn').classList.toggle('disabled', playerStamina < 60);
+            document.getElementById('sprint-btn').classList.toggle('disabled', playerStamina < 1);
+        }
+
+        // ==========================================
+        // 5. MUSUH (BARBARIAN GLB + PNG)
+        // ==========================================
+        let enemies = [];
+        
+        function spawnEnemy(x, z, isBoss = false) {
+            const enemyGroup = new THREE.Group();
+            let yPos = 0; 
+            let maxHealth = isBoss ? 500 : 100;
+            let spriteScaleY = isBoss ? 3 : 2; 
+            let spritePosY = isBoss ? 3.5 : 2;
+
+            enemyGroup.position.set(x, yPos, z);
+            scene.add(enemyGroup);
+
+            // Load Barbarian.glb
+            gltfLoader.load('./Barbarian.glb', (gltf) => {
+                const enemyModel = gltf.scene;
+
+                enemyModel.traverse((child) => {
+                    if (child.isMesh) {
+                        child.material.map = barbarianTex;
+                        child.material.needsUpdate = true;
+                    }
+                });
+
+                if(isBoss) { 
+                    enemyModel.scale.set(2, 2, 2); 
+                } else { 
+                    enemyModel.scale.set(1, 1, 1); 
+                }
+                
+                enemyGroup.add(enemyModel);
+            });
+
+            // Darah Musuh (UI)
+            const canvas = document.createElement('canvas'); 
+            canvas.width = 128; canvas.height = 32;
+            const ctx = canvas.getContext('2d'); 
+            ctx.fillStyle = 'red'; ctx.fillRect(0, 0, 128, 32);
+            const texture = new THREE.CanvasTexture(canvas);
+            const hpSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture }));
+            hpSprite.position.y = spritePosY; 
+            hpSprite.scale.set(spriteScaleY, 0.5, 1);
+            enemyGroup.add(hpSprite);
+
+            enemies.push({ group: enemyGroup, hpSprite: hpSprite, ctx: ctx, texture: texture, hp: maxHealth, maxHp: maxHealth, isBoss: isBoss });
+        }
+
+        spawnEnemy(0, -10, true); 
+        for(let i=0; i<3; i++) spawnEnemy((Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30, false); 
+
+        function updateEnemyHPBar(enemyObj) {
+            enemyObj.ctx.clearRect(0, 0, 128, 32);
+            enemyObj.ctx.fillStyle = 'gray'; enemyObj.ctx.fillRect(0, 0, 128, 32); 
+            enemyObj.ctx.fillStyle = 'red'; enemyObj.ctx.fillRect(0, 0, (enemyObj.hp / enemyObj.maxHp) * 128, 32);
+            enemyObj.texture.needsUpdate = true;
+        }
+
+        function showNotification(text) {
+            const notif = document.getElementById('notification');
+            notif.innerText = text; notif.style.display = 'block';
+            setTimeout(() => { notif.style.display = 'none'; }, 2000);
+        }
+
+        function checkDamageAll(radius, damage, knockbackPower) {
+            for (let i = enemies.length - 1; i >= 0; i--) {
+                const enemyObj = enemies[i];
+                const hitRadius = enemyObj.isBoss ? radius + 1.5 : radius; 
+                const jarak = player.position.distanceTo(enemyObj.group.position);
+                
+                if (jarak < hitRadius) {
+                    
+                    const actualKnockback = enemyObj.isBoss ? knockbackPower * 0.1 : knockbackPower;
+                    const dx = enemyObj.group.position.x - player.position.x;
+                    const dz = enemyObj.group.position.z - player.position.z;
+                    const dist = Math.sqrt(dx*dx + dz*dz) || 1;
+                    enemyObj.group.position.x += (dx/dist) * actualKnockback;
+                    enemyObj.group.position.z += (dz/dist) * actualKnockback;
+                    
+                    enemyObj.hp -= damage;
+                    updateEnemyHPBar(enemyObj);
+                    
+                    if (enemyObj.hp <= 0) {
+                        scene.remove(enemyObj.group); enemies.splice(i, 1);
+                        playerStamina = MAX_STAMINA; updateUI(); 
+                        showNotification(enemyObj.isBoss ? "BOSS DIKALAHKAN!" : "+ STAMINA PENUH!");
+                        
+                        if(enemyObj.isBoss) {
+                            setTimeout(() => { spawnEnemy(0, -10, true); }, 10000);
+                        } else {
+                            setTimeout(() => { spawnEnemy(player.position.x + (Math.random() - 0.5) * 40, player.position.z + (Math.random() - 0.5) * 40, false); }, 5000);
+                        }
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // 6. KONTROL & KAMERA
+        // ==========================================
+        let moveVector = { x: 0, z: 0 };
+        let cameraAngle = 0; const cameraDistance = 8; const cameraHeight = 5;   
+
+        function updateCamera() {
+            camera.position.x = player.position.x + cameraDistance * Math.sin(cameraAngle);
+            camera.position.z = player.position.z + cameraDistance * Math.cos(cameraAngle);
+            camera.position.y = player.position.y + cameraHeight;
+            camera.lookAt(player.position.x, player.position.y, player.position.z);
+        }
+
+        const joystick = nipplejs.create({ zone: document.getElementById('joystick-zone'), mode: 'static', position: { left: '70px', bottom: '70px' }, color: 'white' });
+        joystick.on('move', (evt, data) => { const f = Math.min(data.force, 1); moveVector.x = Math.cos(data.angle.radian) * f; moveVector.z = -Math.sin(data.angle.radian) * f; });
+        joystick.on('end', () => { moveVector.x = 0; moveVector.z = 0; });
+
+        const cameraZone = document.getElementById('camera-zone');
+        let isDragging = false, previousTouchX = 0, cameraTouchId = null;
+        cameraZone.addEventListener('touchstart', (e) => { e.preventDefault(); for (let t of e.changedTouches) if (cameraTouchId === null) { cameraTouchId = t.identifier; previousTouchX = t.clientX; isDragging = true; break; } });
+        cameraZone.addEventListener('touchmove', (e) => { e.preventDefault(); if (!isDragging) return; for (let t of e.changedTouches) if (t.identifier === cameraTouchId) { cameraAngle -= (t.clientX - previousTouchX) * 0.015; previousTouchX = t.clientX; break; } });
+        cameraZone.addEventListener('touchend', (e) => { for (let t of e.changedTouches) if (t.identifier === cameraTouchId) { isDragging = false; cameraTouchId = null; break; } });
+
+        const sprintBtn = document.getElementById('sprint-btn');
+        sprintBtn.addEventListener('touchstart', (e) => { e.stopPropagation(); isSprinting = true; sprintBtn.classList.add('btn-active'); });
+        sprintBtn.addEventListener('touchend', (e) => { e.stopPropagation(); isSprinting = false; sprintBtn.classList.remove('btn-active'); });
+
+        // ==========================================
+        // 7. SISTEM SERANGAN & ANIMASI KAPAK
+        // ==========================================
+        document.getElementById('basic-attack-btn').addEventListener('touchstart', (e) => {
+            e.stopPropagation(); 
+            if(!isAttacking && playerStamina >= 1) { 
+                isAttacking = true; playerStamina -= 1; updateUI();
+                let frame = 0; let dirX = Math.sin(player.rotation.y); let dirZ = Math.cos(player.rotation.y);
+                const anim = setInterval(() => {
+                    frame++;
+                    if(frame <= 6) { sword.rotation.x -= 0.15; } 
+                    else if (frame <= 10) {
+                        sword.rotation.x += 0.45; player.position.x += dirX * 0.15; player.position.z += dirZ * 0.15;
+                        if(frame === 8) checkDamageAll(3.5, 20, 1.5); 
+                    } else if (frame <= 20) { sword.rotation.x -= 0.09; } 
+                    else { sword.rotation.x = 0; clearInterval(anim); isAttacking = false; }
+                }, 16);
+            }
+        });
+
+        document.getElementById('spin-attack-btn').addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+            if(!isAttacking && playerStamina >= 30) {
+                isAttacking = true; playerStamina -= 30; updateUI();
+                let frame = 0; let dirX = Math.sin(player.rotation.y); let dirZ = Math.cos(player.rotation.y);
+                sword.rotation.z = Math.PI / 2;
+                const anim = setInterval(() => {
+                    frame++; player.rotation.y -= 0.35; player.position.x += dirX * 0.08; player.position.z += dirZ * 0.08;
+                    if(frame === 5 || frame === 12) checkDamageAll(4.0, 20, 1); 
+                    if(frame >= 18) { sword.rotation.z = 0; clearInterval(anim); isAttacking = false; }
+                }, 16);
+            }
+        });
+
+        document.getElementById('ulti-btn').addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+            if(!isAttacking && playerStamina >= 60) {
+                isAttacking = true; playerStamina -= 60; updateUI();
+                let frame = 0, yAwal = player.position.y; let dirX = Math.sin(player.rotation.y); let dirZ = Math.cos(player.rotation.y);
+                const anim = setInterval(() => {
+                    frame++;
+                    if(frame <= 20) { 
+                        player.position.y += 0.2; player.rotation.y -= 0.4; sword.rotation.x -= 0.1; player.position.x += dirX * 0.1; player.position.z += dirZ * 0.1;
+                    } 
+                    else if (frame <= 23) { player.position.y -= 1.3; } 
+                    else {
+                        player.position.y = yAwal; sword.rotation.x = 0; 
+                        checkDamageAll(6, 100, 4); clearInterval(anim); isAttacking = false;
+                    }
+                }, 16);
+            }
+        });
+
+        // ==========================================
+        // 8. GAME LOOP (RENDERER)
+        // ==========================================
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (!isAttacking) {
+                let speed = 0.15;
+                if (isSprinting && playerStamina > 0 && (moveVector.x !== 0 || moveVector.z !== 0)) {
+                    speed = 0.3; playerStamina -= 0.2; 
+                } else {
+                    if (playerStamina < MAX_STAMINA) playerStamina += 0.05; 
+                }
+                updateUI();
+
+                if (moveVector.x !== 0 || moveVector.z !== 0) {
+                    const moveX = (moveVector.x * Math.cos(cameraAngle) + moveVector.z * Math.sin(cameraAngle)) * speed;
+                    const moveZ = (-moveVector.x * Math.sin(cameraAngle) + moveVector.z * Math.cos(cameraAngle)) * speed;
+                    player.position.x += moveX; player.position.z += moveZ; player.rotation.y = Math.atan2(moveX, moveZ);
+                }
+            }
+
+            enemies.forEach(e => { if(e.group.parent) e.hpSprite.lookAt(camera.position); });
+            updateCamera();
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
